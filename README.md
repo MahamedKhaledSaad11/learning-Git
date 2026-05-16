@@ -529,6 +529,332 @@ int main(void) {
 
 ---
 
+## ⏱️ SysTick Timer — The Built-in Countdown Timer
+
+> **What is SysTick?** It's a 24-bit countdown timer built into the ARM Cortex-M4 core. Every TM4C123 has it. It's the simplest timer — no modules to enable, no GPIO pins needed. Perfect for generating precise delays and periodic interrupts.
+
+### Step 3 (SysTick): LIST the Registers 📋
+
+```
+NVIC_ST_CTRL_R    → Control & status register (enable, interrupt, clock source)
+NVIC_ST_RELOAD_R  → The value to count DOWN from (reload value)
+NVIC_ST_CURRENT_R → Current count value (write anything to clear it)
+```
+
+> [!TIP]
+> **Memory trick:** Think of SysTick as an egg timer:
+> - `RELOAD` = how many seconds you set the timer for
+> - `CURRENT` = how many seconds are left on the display
+> - `CTRL` = the start/stop/alarm button
+
+### Step 4 (SysTick): INIT Code ⚙️
+
+**SysTick does NOT need a clock enable!** It's always powered. Just configure and go.
+
+```c
+void SysTick_Init(void) {
+    NVIC_ST_CTRL_R    = 0;           // Step 1: DISABLE SysTick before config
+    NVIC_ST_RELOAD_R  = 15999999;    // Step 2: Set reload value
+                                     //   For 1-second delay @ 16 MHz:
+                                     //   RELOAD = (16,000,000 / 1) - 1 = 15,999,999
+    NVIC_ST_CURRENT_R = 0;           // Step 3: Clear the current counter
+    NVIC_ST_CTRL_R    = 0x05;        // Step 4: Enable with system clock
+                                     //   Bit 2 = 1: use system clock
+                                     //   Bit 1 = 0: no interrupt (polling mode)
+                                     //   Bit 0 = 1: enable SysTick
+}
+```
+
+> [!IMPORTANT]
+> ### How to Calculate the RELOAD Value (They ALWAYS ask this!)
+> ```
+> RELOAD = (System_Clock / Desired_Frequency) - 1
+>
+> For a 1-second period @ 16 MHz:
+>   RELOAD = (16,000,000 / 1) - 1 = 15,999,999
+>
+> For a 1 ms delay @ 16 MHz:
+>   RELOAD = (16,000,000 / 1000) - 1 = 15,999
+>
+> For a 500 µs delay @ 16 MHz:
+>   RELOAD = (16,000,000 / 2000) - 1 = 7,999
+> ```
+> **Always show this formula in the exam — it's easy marks!**
+
+### CTRL Register Bit Values (Memorize These!)
+
+| CTRL Value | Meaning |
+|---|---|
+| `0x05` | Enable + System Clock (polling mode, NO interrupt) |
+| `0x07` | Enable + System Clock + **Interrupt enabled** |
+| `0x00` | Disabled |
+
+> **Bit layout of NVIC_ST_CTRL_R:**
+> - Bit 0 = ENABLE (1 = on)
+> - Bit 1 = INTEN (1 = trigger interrupt when reaches 0)
+> - Bit 2 = CLK_SRC (1 = system clock, 0 = external clock)
+> - Bit 16 = COUNT (read-only flag: 1 = timer has reached 0 since last read)
+
+### Step 5 (SysTick): OPERATION Functions 🔄
+
+#### Polling Mode — Wait for the count to reach zero:
+
+```c
+void SysTick_Wait(unsigned long delay) {
+    NVIC_ST_RELOAD_R  = delay - 1;  // Load the delay value
+    NVIC_ST_CURRENT_R = 0;          // Clear counter
+    NVIC_ST_CTRL_R    = 0x05;       // Enable with system clock, no interrupt
+    // Wait until COUNT flag (bit 16) is set — meaning timer hit 0
+    while ((NVIC_ST_CTRL_R & 0x00010000) == 0) {}
+}
+
+// Wrapper: delay in milliseconds (@ 16 MHz)
+void SysTick_Wait1ms(unsigned long delay_ms) {
+    unsigned long i;
+    for (i = 0; i < delay_ms; i++) {
+        SysTick_Wait(16000);         // 16,000 cycles = 1 ms @ 16 MHz
+    }
+}
+```
+
+#### Interrupt Mode — SysTick fires the ISR periodically:
+
+```c
+// In Init: use CTRL = 0x07 to enable interrupt
+void SysTick_Init_Interrupt(unsigned long period) {
+    NVIC_ST_CTRL_R    = 0;           // Disable first
+    NVIC_ST_RELOAD_R  = period - 1;  // Set period
+    NVIC_ST_CURRENT_R = 0;           // Clear counter
+    NVIC_ST_CTRL_R    = 0x07;        // Enable + system clock + INTERRUPT
+}
+
+// The ISR — this function is called automatically every period
+void SysTick_Handler(void) {
+    // Your periodic task goes here
+    // Example: toggle an LED every 1 second
+    GPIO_PORTF_DATA_R ^= 0x04;       // Toggle PF2 (blue LED)
+}
+```
+
+> [!NOTE]
+> The function **must** be named `SysTick_Handler` — this is the name the ARM Cortex-M4 startup file looks for in the vector table. Do NOT rename it.
+
+---
+
+## ⚡ Interrupts — Making the MCU React to Events
+
+> **What are Interrupts?** Instead of constantly checking (polling) if something happened, interrupts let the hardware *notify* the CPU automatically. The CPU stops what it's doing, runs the Interrupt Service Routine (ISR), then returns to where it left off.
+
+### The Key Concepts:
+
+| Concept | Plain English |
+|---|---|
+| **ISR (Interrupt Service Routine)** | The function that runs when the interrupt fires |
+| **NVIC (Nested Vector Interrupt Controller)** | The ARM hardware that manages which interrupts are enabled and their priority |
+| **Edge-triggered** | Fires when the signal CHANGES (rising or falling edge) |
+| **Level-triggered** | Fires as long as the signal IS at a certain level |
+| **Priority** | Which interrupt wins if two fire at the same time (0 = highest) |
+
+### Step 3 (Interrupts): LIST the Registers 📋
+
+#### For GPIO Interrupts (most common in exams):
+```
+GPIO_PORTx_IS_R     → Interrupt Sense (0=edge, 1=level)
+GPIO_PORTx_IBE_R    → Interrupt Both Edges (1=both edges trigger)
+GPIO_PORTx_IEV_R    → Interrupt Event (0=falling edge/low, 1=rising edge/high)
+GPIO_PORTx_ICR_R    → Interrupt Clear Register (write 1 to clear the flag)
+GPIO_PORTx_IM_R     → Interrupt Mask (1=unmask/enable the interrupt for that pin)
+
+NVIC_ENx_R          → NVIC Enable Register (enable interrupt in NVIC)
+NVIC_PRIx_R         → Priority Register (set priority 0-7)
+```
+
+#### For SysTick Interrupts:
+```
+NVIC_ST_CTRL_R      → Bit 1 = INTEN (enable SysTick interrupt)
+(Handled automatically by the ARM core — no NVIC_EN needed)
+```
+
+### Step 4 (Interrupts): INIT Code ⚙️
+
+#### GPIO Interrupt Example — PF4 (SW1 button on the LaunchPad):
+
+```c
+void GPIO_PORTF_Interrupt_Init(void) {
+    // 1. Enable clock and configure pin as input (standard GPIO init first)
+    SYSCTL_RCGCGPIO_R |= 0x20;              // Port F clock
+    while ((SYSCTL_PRGPIO_R & 0x20) == 0) {}
+    
+    GPIO_PORTF_LOCK_R   = 0x4C4F434B;       // Unlock Port F (PF0 is locked)
+    GPIO_PORTF_CR_R    |= 0x11;             // Allow changes to PF0 and PF4
+    GPIO_PORTF_DIR_R   &= ~0x11;            // PF0, PF4 = inputs (buttons)
+    GPIO_PORTF_PUR_R   |= 0x11;             // Pull-up resistors (buttons are active-low)
+    GPIO_PORTF_DEN_R   |= 0x11;             // Digital enable
+    
+    // 2. Configure interrupt behavior
+    GPIO_PORTF_IS_R    &= ~0x10;            // PF4: edge-triggered (not level)
+    GPIO_PORTF_IBE_R   &= ~0x10;            // PF4: NOT both edges
+    GPIO_PORTF_IEV_R   &= ~0x10;            // PF4: falling edge (button press = goes LOW)
+    GPIO_PORTF_ICR_R   |=  0x10;            // Clear any pending interrupt on PF4
+    GPIO_PORTF_IM_R    |=  0x10;            // Unmask PF4 interrupt (ENABLE it)
+    
+    // 3. Enable in NVIC (Port F = IRQ 30)
+    NVIC_EN0_R |= (1 << 30);               // Enable IRQ 30 (GPIO Port F)
+    
+    // 4. Set priority (optional, 0 = highest, 7 = lowest)
+    // IRQ 30 is in NVIC_PRI7_R, bits [31:29]
+    NVIC_PRI7_R = (NVIC_PRI7_R & ~0xE0000000) | (0x02 << 29); // Priority 2
+    
+    // 5. Enable global interrupts
+    __enable_irq();   // Or: EnableInterrupts(); in TivaWare
+}
+```
+
+### Step 5 (Interrupts): The ISR Function 🔄
+
+```c
+// The ISR for GPIO Port F
+// MUST be named exactly "GPIOF_Handler" — defined in the startup file
+void GPIOF_Handler(void) {
+    // 1. ALWAYS clear the interrupt flag FIRST (prevents re-triggering)
+    GPIO_PORTF_ICR_R |= 0x10;              // Clear PF4 interrupt flag
+    
+    // 2. Do your task
+    GPIO_PORTF_DATA_R ^= 0x02;             // Toggle PF1 (Red LED)
+}
+```
+
+> [!CAUTION]
+> **The #1 Interrupt Mistake:** Forgetting to **clear the interrupt flag** inside the ISR!
+> If you don't clear it, the ISR will fire again immediately after returning — creating an infinite loop.
+> **Always start your ISR by clearing the flag with `ICR_R`.**
+
+### IRQ Numbers for TM4C123 (Common in Exams):
+
+| Peripheral | IRQ Number | NVIC_EN Register | Bit |
+|---|---|---|---|
+| GPIO Port A | 0 | NVIC_EN0_R | bit 0 |
+| GPIO Port B | 1 | NVIC_EN0_R | bit 1 |
+| GPIO Port C | 2 | NVIC_EN0_R | bit 2 |
+| GPIO Port D | 3 | NVIC_EN0_R | bit 3 |
+| GPIO Port E | 4 | NVIC_EN0_R | bit 4 |
+| UART0 | 5 | NVIC_EN0_R | bit 5 |
+| UART1 | 6 | NVIC_EN0_R | bit 6 |
+| SysTick | — | Built into core | — |
+| GPIO Port F | 30 | NVIC_EN0_R | bit 30 |
+
+### ISR Naming Convention (ARM Vector Table):
+
+| Peripheral | ISR Function Name |
+|---|---|
+| GPIO Port A | `GPIOA_Handler` |
+| GPIO Port B | `GPIOB_Handler` |
+| GPIO Port C | `GPIOC_Handler` |
+| GPIO Port D | `GPIOD_Handler` |
+| GPIO Port E | `GPIOE_Handler` |
+| GPIO Port F | `GPIOF_Handler` |
+| UART0 | `UART0_Handler` |
+| SysTick | `SysTick_Handler` |
+
+> [!IMPORTANT]
+> These names are **fixed** by the startup file (`startup_TM4C123.s`). If you name your ISR anything different, it will NEVER be called. No error, no warning — just silent failure.
+
+### Step 6 (Interrupts): MAIN Function 🏁
+
+```c
+#include "tm4c123gh6pm.h"
+
+void GPIO_PORTF_Interrupt_Init(void);  // Forward declarations
+void GPIOF_Handler(void);
+
+int main(void) {
+    GPIO_PORTF_Interrupt_Init();       // Set up interrupt
+    
+    // The LED init (PF1 = Red LED output)
+    GPIO_PORTF_DIR_R  |= 0x02;        // PF1 output
+    GPIO_PORTF_DEN_R  |= 0x02;        // PF1 digital enable
+    
+    while (1) {
+        // Main loop does its own work
+        // The GPIOF_Handler runs automatically when SW1 is pressed
+        // No need to check the button manually!
+    }
+}
+```
+
+### The Interrupt Flow — What Happens in Hardware:
+
+```mermaid
+sequenceDiagram
+    participant CPU as CPU (main loop)
+    participant HW as Hardware (GPIO)
+    participant NVIC as NVIC
+    participant ISR as ISR (Handler)
+
+    CPU->>CPU: Running main loop normally
+    HW->>NVIC: Interrupt signal (button pressed!)
+    NVIC->>CPU: Pause! Higher priority task!
+    CPU->>CPU: Save registers (automatic)
+    CPU->>ISR: Jump to GPIOF_Handler()
+    ISR->>HW: Clear interrupt flag (ICR_R)
+    ISR->>ISR: Do the task (toggle LED)
+    ISR->>CPU: Return from interrupt
+    CPU->>CPU: Restore registers (automatic)
+    CPU->>CPU: Continue main loop from where it paused
+```
+
+### SysTick + Interrupt — Complete Example:
+
+```c
+#include "tm4c123gh6pm.h"
+
+/*--- SysTick Init with Interrupt ---*/
+void SysTick_Init(void) {
+    NVIC_ST_CTRL_R    = 0;           // Disable
+    NVIC_ST_RELOAD_R  = 15999999;    // 1 second @ 16 MHz: (16,000,000 / 1) - 1
+    NVIC_ST_CURRENT_R = 0;           // Clear counter
+    NVIC_ST_CTRL_R    = 0x07;        // Enable + System Clock + Interrupt
+}
+
+/*--- SysTick ISR ---*/
+void SysTick_Handler(void) {
+    GPIO_PORTF_DATA_R ^= 0x04;       // Toggle PF2 (Blue LED) every 1 second
+}
+
+/*--- Main ---*/
+int main(void) {
+    // Enable Port F clock
+    SYSCTL_RCGCGPIO_R |= 0x20;
+    while ((SYSCTL_PRGPIO_R & 0x20) == 0) {}
+    
+    // PF2 (Blue LED) = output
+    GPIO_PORTF_DIR_R |= 0x04;
+    GPIO_PORTF_DEN_R |= 0x04;
+    
+    SysTick_Init();                  // Start SysTick with interrupt
+    __enable_irq();                  // Enable global interrupts
+    
+    while (1) {
+        // CPU is free to do other things
+        // LED toggles automatically every 1 second via SysTick ISR
+    }
+}
+```
+
+### ✅ Interrupt Exam Checklist:
+
+- [ ] Did I configure the pin as **input** before setting up the GPIO interrupt?
+- [ ] Did I set **IS_R** (edge vs level)?
+- [ ] Did I set **IEV_R** (rising vs falling edge)?
+- [ ] Did I **clear** any pending flag with **ICR_R** before enabling?
+- [ ] Did I **unmask** the pin with **IM_R**?
+- [ ] Did I enable the IRQ in **NVIC_EN0_R** (or EN1/EN2 for higher IRQ numbers)?
+- [ ] Is my ISR named **exactly** as the vector table expects?
+- [ ] Did I **clear the flag** as the **FIRST line** of my ISR?
+- [ ] Did I call `__enable_irq()` to enable global interrupts?
+
+---
+
 ## 🔑 Key Tricks to Remember
 
 ### 1. Number-to-Character Conversion (No sprintf needed)
