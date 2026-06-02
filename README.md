@@ -1,914 +1,494 @@
-# 🧠 How to Think & Write Embedded Code in Exams
+# Wireless Communications: Formula & Reference Guide
 
-## The Core Problem
-
-You read the question, you *understand* what it wants, but your mind goes blank when you try to write the code. This happens because you're trying to do everything at once. The solution is to **break the problem into tiny, mechanical steps** that you follow every single time.
+This document compiles and explains all the rules, formulas, and equations from the wireless communication lectures (Slide 1 to Slide 9). For each entry, we detail the mathematical expression, the physical meaning of all parameters, and concrete engineering guidelines on when to apply them.
 
 ---
 
-## The 6-Step Method (Use This EVERY Time)
-
-```mermaid
-flowchart TD
-    A["Step 1: READ & HIGHLIGHT"] --> B["Step 2: DRAW the Hardware"]
-    B --> C["Step 3: LIST the Registers"]
-    C --> D["Step 4: Write INIT Code"]
-    D --> E["Step 5: Write OPERATION Code"]
-    E --> F["Step 6: Write MAIN Loop"]
-    style A fill:#e74c3c,color:#fff
-    style B fill:#e67e22,color:#fff
-    style C fill:#f1c40f,color:#000
-    style D fill:#2ecc71,color:#fff
-    style E fill:#3498db,color:#fff
-    style F fill:#9b59b6,color:#fff
-```
+## Table of Contents
+1. [Signal Representation, Gain, Attenuation, & Decibels (Slide 1)](#1-signal-representation-gain-attenuation--decibels-slide-1)
+2. [Fading & Noise Characteristics (Slide 2)](#2-fading--noise-characteristics-slide-2)
+3. [Large-Scale Path Loss & Propagation Models (Slides 3 & 4)](#3-large-scale-path-loss--propagation-models-slides-3--4)
+4. [Multipath Channels & Delay Spread Parameters (Slides 5 & 6)](#4-multipath-channels--delay-spread-parameters-slides-5--6)
+5. [Wireless Link Performance & Deep Fade Analysis (Slide 7)](#5-wireless-link-performance--deep-fade-analysis-slide-7)
+6. [Space Diversity & Maximal Ratio Combining (Slide 8)](#6-space-diversity--maximal-ratio-combining-slide-8)
+7. [Multiple Access & Multi-Carrier Systems (Slide 9)](#7-multiple-access--multi-carrier-systems-slide-9)
 
 ---
 
-## Step 1: READ & HIGHLIGHT the Question 🔍
+## 1. Signal Representation, Gain, Attenuation, & Decibels (Slide 1)
 
-> **Goal:** Extract exactly what the question is asking. Don't start writing code yet!
-
-Read the question **twice**. On the second read, underline or circle these things:
-
-| What to find | Why it matters |
-|---|---|
-| **Which microcontroller?** | Tells you which register names to use |
-| **Which peripheral?** (UART, SPI, I2C, GPIO, Timer) | Tells you which module to configure |
-| **Which pins/ports?** | Tells you which port to enable |
-| **What data?** (temperature, distance, characters) | Tells you what to send/receive |
-| **What baud rate / speed?** | Tells you the configuration values |
-| **What direction?** (send, receive, or both) | Tells you if TX, RX, or both |
-| **Any special conditions?** (interrupts, polling, threshold) | Tells you extra logic needed |
-
-### Example of highlighting:
-
-> *"Write a program for the **Tiva C (TM4C123)** to send **temperature readings** via **UART0** at **9600 baud** to a **PC**. The **LM35** sensor is connected to **PE3 (ADC)**. Send the temperature every **1 second**."*
-
-From this, I extract:
-- **MCU:** Tiva C TM4C123
-- **Communication:** UART0 (TX)
-- **Sensor:** ADC on PE3
-- **Baud rate:** 9600
-- **Timing:** Every 1 second
-- **Direction:** Sending (TX only)
+### 1.1. Voltage Gain and Attenuation
+$$A_v = \frac{V_{\text{out}}}{V_{\text{in}}}$$
+*   **Parameters:**
+    *   $A_v$: Voltage amplification factor (dimensionless ratio).
+    *   $V_{\text{out}}$: Output voltage across the load (Volts, $\text{V}$).
+    *   $V_{\text{in}}$: Input voltage to the circuit (Volts, $\text{V}$).
+*   **When to Use:**
+    *   Use to characterize the voltage transfer ratio of active circuits (amplifiers) or passive circuits (filters, attenuators).
+    *   If $A_v > 1$, the circuit exhibits **gain** (amplification).
+    *   If $A_v < 1$, the circuit exhibits **attenuation** (loss).
 
 ---
 
-## Step 2: DRAW the Hardware 🎨
-
-> **Goal:** Visualize what is connected to what. This prevents pin mistakes.
-
-Even a rough sketch helps. Draw:
-1. The microcontroller in the center
-2. Each peripheral connected to its specific pin
-3. Label the pins with their function
-
-```
-                    TM4C123
-                 ┌───────────┐
-    LM35 ──────►│ PE3 (AIN0) │          
-                 │            │          
-    PC (TX) ◄───│ PA1 (U0TX) │          
-    PC (RX) ───►│ PA0 (U0RX) │          
-                 └───────────┘
-```
-
-> [!TIP]
-> This drawing tells you exactly which ports to enable: **Port A** (for UART) and **Port E** (for ADC). Many students forget to enable a port — this drawing prevents that.
+### 1.2. Power Gain and Attenuation
+$$A_p = \frac{P_{\text{out}}}{P_{\text{in}}} = \frac{P_2}{P_1}$$
+*   **Parameters:**
+    *   $A_p$: Power ratio (dimensionless).
+    *   $P_{\text{out}}$ (or $P_2$): Signal power at the output/destination point (Watts, $\text{W}$).
+    *   $P_{\text{in}}$ (or $P_1$): Signal power at the input/source point (Watts, $\text{W}$).
+*   **When to Use:**
+    *   Use in link analysis to evaluate how much signal power changes as it propagates through cables, amplifiers, or open space.
 
 ---
 
-## Step 3: LIST the Registers You Need 📋
-
-> **Goal:** Before writing any code, write down every register you'll touch. This is your "recipe."
-
-For **any** embedded peripheral, the configuration always follows this universal pattern:
-
-```
-1. Enable the CLOCK to the peripheral
-2. Configure the PINS (direction, alternate function, digital/analog)
-3. Configure the PERIPHERAL itself (baud rate, data bits, mode, etc.)
-4. Enable the PERIPHERAL
-```
-
-### Register Checklist for Common Protocols:
-
-#### GPIO (Digital I/O)
-```
-SYSCTL_RCGCGPIO_R    → Enable clock to port
-GPIO_PORTx_DIR_R     → Set pin direction (1=output, 0=input)
-GPIO_PORTx_DEN_R     → Enable digital function
-GPIO_PORTx_DATA_R    → Read/write pin data
-```
-
-#### UART
-```
-SYSCTL_RCGCUART_R    → Enable clock to UART module
-SYSCTL_RCGCGPIO_R    → Enable clock to GPIO port (for TX/RX pins)
-GPIO_PORTx_AFSEL_R   → Enable alternate function on TX/RX pins
-GPIO_PORTx_PCTL_R    → Select UART as the alternate function
-GPIO_PORTx_DEN_R     → Enable digital on TX/RX pins
-UART0_CTL_R          → Disable UART before config
-UART0_IBRD_R         → Integer part of baud rate divisor
-UART0_FBRD_R         → Fractional part of baud rate divisor
-UART0_LCRH_R         → Line control (data bits, parity, FIFO)
-UART0_CTL_R          → Enable UART after config
-```
-
-#### SPI (SSI)
-```
-SYSCTL_RCGCSSI_R     → Enable clock to SSI module
-SYSCTL_RCGCGPIO_R    → Enable clock to GPIO port
-GPIO_PORTx_AFSEL_R   → Enable alternate function
-GPIO_PORTx_PCTL_R    → Select SSI function
-GPIO_PORTx_DEN_R     → Digital enable
-SSI0_CR1_R           → Disable SSI, set master/slave
-SSI0_CC_R            → Clock source
-SSI0_CPSR_R          → Clock prescaler
-SSI0_CR0_R           → Data size, frame format, clock rate
-SSI0_CR1_R           → Enable SSI
-```
-
-#### I2C
-```
-SYSCTL_RCGCI2C_R     → Enable clock to I2C module
-SYSCTL_RCGCGPIO_R    → Enable clock to GPIO port
-GPIO_PORTx_AFSEL_R   → Alternate function on SDA/SCL
-GPIO_PORTx_PCTL_R    → Select I2C function
-GPIO_PORTx_DEN_R     → Digital enable
-GPIO_PORTx_ODR_R     → Open drain on SDA pin (IMPORTANT for I2C!)
-I2C0_MCR_R           → Master function enable
-I2C0_MTPR_R          → Timer period (sets speed: 100kHz or 400kHz)
-```
-
-#### ADC
-```
-SYSCTL_RCGCADC_R     → Enable clock to ADC module
-SYSCTL_RCGCGPIO_R    → Enable clock to GPIO port
-GPIO_PORTx_AFSEL_R   → Alternate function
-GPIO_PORTx_DEN_R     → DISABLE digital (clear the bit!)
-GPIO_PORTx_AMSEL_R   → Enable ANALOG function
-ADC0_ACTSS_R         → Disable sequencer before config
-ADC0_EMUX_R          → Trigger source
-ADC0_SSMUXn_R        → Input channel selection
-ADC0_SSCTLn_R        → Sample control (end, interrupt enable)
-ADC0_ACTSS_R         → Enable sequencer
-```
-
-> [!IMPORTANT]
-> **You don't need to memorize every register address.** In exams, you usually get a datasheet extract or can use symbolic names. Focus on memorizing the **sequence** and **purpose** of each register.
+### 1.3. Power Gain in Decibels
+$$A_p\text{ (dB)} = 10 \log_{10}\left(\frac{P_{\text{out}}}{P_{\text{in}}}\right)$$
+*   **Parameters:**
+    *   $A_p\text{ (dB)}$: Power gain expressed in decibels ($\text{dB}$).
+    *   $P_{\text{out}}, P_{\text{in}}$: Output and input powers, respectively ($\text{W}$ or $\text{mW}$, must use identical units).
+*   **When to Use:**
+    *   Use to express power changes in logarithmic units, converting multiplication/division operations into simple additions/subtractions.
+    *   A **positive** $\text{dB}$ value represents gain ($P_{\text{out}} > P_{\text{in}}$).
+    *   A **negative** $\text{dB}$ value represents attenuation or loss ($P_{\text{out}} < P_{\text{in}}$).
 
 ---
 
-## Step 4: Write the INIT (Initialization) Function ⚙️
-
-> **Goal:** Turn your register list into actual C code. This is the most mechanical part — just translate the list.
-
-### The Golden Rules of Init:
-
-1. **Always enable the clock FIRST** and add a small delay after
-2. **Disable the peripheral** before configuring it
-3. **Configure all settings** while disabled
-4. **Enable the peripheral** last
-
-### Template:
-
-```c
-void UART0_Init(void) {
-    // 1. Enable clocks
-    SYSCTL_RCGCUART_R |= 0x01;      // UART0 clock
-    SYSCTL_RCGCGPIO_R |= 0x01;      // Port A clock
-    while ((SYSCTL_PRUART_R & 0x01) == 0) {}  // Wait for clock
-    
-    // 2. Disable UART before config
-    UART0_CTL_R &= ~0x01;           // Clear UARTEN bit
-    
-    // 3. Configure baud rate (9600 @ 16MHz)
-    //    BRD = 16,000,000 / (16 × 9600) = 104.1667
-    //    IBRD = 104
-    //    FBRD = integer(0.1667 × 64 + 0.5) = 11
-    UART0_IBRD_R = 104;
-    UART0_FBRD_R = 11;
-    
-    // 4. Configure line control: 8-bit, no parity, 1 stop, FIFO enabled
-    UART0_LCRH_R = 0x70;            // 0111 0000
-    
-    // 5. Configure GPIO pins for UART (PA0=RX, PA1=TX)
-    GPIO_PORTA_AFSEL_R |= 0x03;     // Alt function on PA0, PA1
-    GPIO_PORTA_PCTL_R  = (GPIO_PORTA_PCTL_R & ~0xFF) | 0x11; // UART function
-    GPIO_PORTA_DEN_R   |= 0x03;     // Digital enable
-    
-    // 6. Enable UART
-    UART0_CTL_R |= 0x301;           // Enable UART, TX, RX
-}
-```
-
-> [!TIP]
-> ### How to Calculate Baud Rate Divisor (They ALWAYS ask this!)
-> ```
-> BRD = System_Clock / (16 × Baud_Rate)
-> 
-> Example: 16 MHz clock, 9600 baud:
->   BRD = 16,000,000 / (16 × 9600) = 104.1667
->   
->   IBRD = 104          (integer part)
->   FBRD = int(0.1667 × 64 + 0.5) = 11   (fractional part)
-> ```
-> **Always show your calculation in the exam — you get marks for it even if the code has a small error!**
+### 1.4. Cascaded Gain (Stage Addition)
+$$A_{\text{overall}}\text{ (dB)} = A_1\text{ (dB)} + A_2\text{ (dB)} + A_3\text{ (dB)} + \dots$$
+*   **Parameters:**
+    *   $A_{\text{overall}}\text{ (dB)}$: Cumulative power gain of the entire system.
+    *   $A_i\text{ (dB)}$: Gain (positive) or loss (negative) of individual cascaded components (e.g., cables, amplifiers, antennas).
+*   **When to Use:**
+    *   Use when multiple communication blocks are connected in series (transmitter $\to$ cable $\to$ channel $\to$ receiver). It is much simpler than multiplying linear ratios.
 
 ---
 
-## Step 5: Write the OPERATION Functions 🔄
-
-> **Goal:** Write the functions that actually send/receive data.
-
-### For UART — Sending a Character:
-
-```c
-void UART0_SendChar(char c) {
-    while ((UART0_FR_R & 0x20) != 0) {}  // Wait until TX FIFO not full
-    UART0_DR_R = c;                       // Write character to data register
-}
-```
-
-**How to remember this:**
-- Before sending, ask: *"Is the mailbox full?"* → Check the flag register
-- If full, **wait**
-- If not full, **put your letter in** → Write to data register
-
-### For UART — Receiving a Character:
-
-```c
-char UART0_RecvChar(void) {
-    while ((UART0_FR_R & 0x10) != 0) {}  // Wait until RX FIFO not empty
-    return (char)(UART0_DR_R & 0xFF);     // Read character from data register
-}
-```
-
-**How to remember this:**
-- Before receiving, ask: *"Is the mailbox empty?"* → Check the flag register
-- If empty, **wait**
-- If not empty, **take the letter out** → Read from data register
-
-### For UART — Sending a String:
-
-```c
-void UART0_SendString(char *str) {
-    while (*str) {                   // Loop until null terminator
-        UART0_SendChar(*str);        // Send each character
-        str++;                       // Move to next character
-    }
-}
-```
-
-### For ADC — Reading a Value:
-
-```c
-unsigned int ADC0_Read(void) {
-    ADC0_PSSI_R = 0x08;                            // Start sampling on SS3
-    while ((ADC0_RIS_R & 0x08) == 0) {}             // Wait for conversion
-    unsigned int result = ADC0_SSFIFO3_R & 0xFFF;   // Read 12-bit result
-    ADC0_ISC_R = 0x08;                              // Clear completion flag
-    return result;
-}
-```
-
-> [!NOTE]
-> ### The Universal Send/Receive Pattern
-> Every communication protocol follows the same logical pattern:
-> ```
-> SEND:  Wait until "ready to send" flag → Write data to TX register
-> RECV:  Wait until "data available" flag → Read data from RX register
-> ```
-> The only thing that changes between UART, SPI, and I2C is **which register** and **which flag bit** you check. The logic is identical!
+### 1.5. Absolute Power in dBm
+$$P_{\text{dBm}} = 10 \log_{10}\left(\frac{P_{\text{absolute}}}{1\text{ mW}}\right)$$
+*   **Parameters:**
+    *   $P_{\text{dBm}}$: Absolute power level relative to 1 milliwatt ($\text{dBm}$).
+    *   $P_{\text{absolute}}$: Power value in Watts ($\text{W}$) or milliwatts ($\text{mW}$).
+*   **When to Use:**
+    *   Use when expressing the absolute strength of a transmitter output, receiver sensitivity, or noise floor.
+    *   > [!IMPORTANT]
+      > Use $\text{dB}$ for relative ratios (gains/losses) and $\text{dBm}$ for absolute power values. Never add $\text{dBm} + \text{dBm}$.
 
 ---
 
-## Step 6: Write the MAIN Function 🏁
-
-> **Goal:** Tie everything together with your application logic.
-
-```c
-#include "tm4c123gh6pm.h"
-#include <stdio.h>
-
-// ... (init and operation functions from above) ...
-
-void delay_ms(int ms) {
-    int i, j;
-    for (i = 0; i < ms; i++)
-        for (j = 0; j < 3180; j++) {}  // Approximate 1ms at 16MHz
-}
-
-int main(void) {
-    // 1. Initialize all peripherals
-    UART0_Init();
-    ADC0_Init();
-    
-    // 2. Application loop
-    while (1) {
-        // Read sensor
-        unsigned int adc_value = ADC0_Read();
-        
-        // Convert to temperature (LM35: 10mV/°C, 3.3V ref, 12-bit ADC)
-        // temp = adc_value × 3.3 × 100 / 4096
-        unsigned int temp = (adc_value * 330) / 4096;
-        
-        // Format and send via UART
-        char buffer[20];
-        sprintf(buffer, "Temp: %d C\r\n", temp);
-        UART0_SendString(buffer);
-        
-        // Wait 1 second
-        delay_ms(1000);
-    }
-}
-```
+### 1.6. Link Attenuation from Absolute Power
+$$\text{Attenuation (dB)} = P_{\text{Rx, dBm}} - P_{\text{Tx, dBm}}$$
+*   **Parameters:**
+    *   $P_{\text{Tx, dBm}}$: Transmit power ($\text{dBm}$).
+    *   $P_{\text{Rx, dBm}}$: Received power ($\text{dBm}$).
+*   **When to Use:**
+    *   Use to calculate the total path loss or gain of a communication channel by subtracting the transmitter power from the receiver power. The result is always in $\text{dB}$.
 
 ---
 
-## 🗺️ The Complete Mental Map
-
-When you see an exam question, your brain should follow this flowchart:
-
-```mermaid
-flowchart TD
-    Q["Read the Question"] --> W{"What protocol?"}
-    W -->|UART| U["UART Registers"]
-    W -->|SPI/SSI| S["SSI Registers"]
-    W -->|I2C| I["I2C Registers"]
-    W -->|GPIO| G["GPIO Registers"]
-    W -->|ADC| A["ADC Registers"]
-    
-    U --> INIT["Write Init Function\n1. Clock\n2. Disable\n3. Configure\n4. Enable"]
-    S --> INIT
-    I --> INIT
-    G --> INIT
-    A --> INIT
-    
-    INIT --> OP["Write Operation Functions\nSend: wait flag → write data\nRecv: wait flag → read data"]
-    
-    OP --> MAIN["Write main()\n1. Call Init\n2. while(1) loop\n3. Read/Process/Send"]
-```
+### 1.7. Cable Loss Calculation
+$$\text{Loss}_{\text{total}}\text{ (dB)} = \text{Loss rate}\text{ (dB/km)} \times \text{Distance}\text{ (km)}$$
+*   **Parameters:**
+    *   $\text{Loss rate}$: Attenuation coefficient of the transmission line, usually given in negative $\text{dB/km}$.
+    *   $\text{Distance}$: Total length of the cable.
+*   **When to Use:**
+    *   Use to find the attenuation introduced by cables of a specific length before feeding signals to antennas.
 
 ---
 
-## ✅ Exam Checklist (Use Before Submitting)
+## 2. Fading & Noise Characteristics (Slide 2)
 
-Go through this list to catch common mistakes:
-
-- [ ] Did I enable the **clock** for every port AND peripheral I'm using?
-- [ ] Did I add a **delay** or check after enabling clocks?
-- [ ] Did I **disable** the peripheral before configuring it?
-- [ ] Did I set **AFSEL** (alternate function) for communication pins?
-- [ ] Did I set **PCTL** to the correct function number?
-- [ ] Did I set **DEN** for digital pins? (Or **AMSEL** + clear DEN for analog?)
-- [ ] Did I **re-enable** the peripheral after configuration?
-- [ ] Did I check the correct **flag bits** before sending/receiving?
-- [ ] Does my `main()` have a `while(1)` infinite loop?
-- [ ] Did I show my **baud rate calculation**?
-
----
-
-## 📝 Full Worked Example
-
-### Exam Question:
-> *"Write a C program for the TM4C123 microcontroller that reads temperature from an LM35 sensor connected to PE3 (AIN0) and transmits the temperature value via UART0 at 9600 baud rate to a terminal. The system clock is 16 MHz. Use 8-bit data, no parity, 1 stop bit. Send the reading every second."*
-
-### My Thinking Process (Out Loud):
-
-**Step 1 — I highlight:**
-- TM4C123 → I know the register names
-- LM35 on PE3 (AIN0) → I need ADC, Port E, channel 0
-- UART0 → I need UART0, Port A (PA0/PA1)
-- 9600 baud, 16 MHz → I need to calculate BRD
-- 8N1 → LCRH = 0x60 or 0x70 (with FIFO)
-- Every 1 second → simple delay loop
-
-**Step 2 — I draw:**
-```
-LM35 → PE3 (AIN0) → ADC0 → [MCU] → UART0 TX (PA1) → PC Terminal
-```
-Ports needed: Port A, Port E
-
-**Step 3 — I list registers:**
-```
-ADC:  RCGCADC, RCGCGPIO(E), AFSEL, DEN(clear), AMSEL, ACTSS, EMUX, SSMUX3, SSCTL3, ACTSS
-UART: RCGCUART, RCGCGPIO(A), AFSEL, PCTL, DEN, CTL, IBRD, FBRD, LCRH, CTL
-```
-
-**Step 4, 5, 6 — I write the code:**
-
-```c
-#include "tm4c123gh6pm.h"
-
-/*=============================================
- * STEP 4a: ADC Initialization
- *=============================================*/
-void ADC0_Init(void) {
-    // Enable clocks
-    SYSCTL_RCGCADC_R  |= 0x01;       // ADC0 clock ON
-    SYSCTL_RCGCGPIO_R |= 0x10;       // Port E clock ON
-    while ((SYSCTL_PRGPIO_R & 0x10) == 0) {}  // Wait
-    
-    // Configure PE3 as analog input
-    GPIO_PORTE_AFSEL_R |= 0x08;      // Alt function on PE3
-    GPIO_PORTE_DEN_R   &= ~0x08;     // DISABLE digital on PE3
-    GPIO_PORTE_AMSEL_R |= 0x08;      // ENABLE analog on PE3
-    
-    // Configure ADC0, Sequencer 3 (single sample)
-    ADC0_ACTSS_R &= ~0x08;           // Disable SS3
-    ADC0_EMUX_R  &= ~0xF000;         // Software trigger
-    ADC0_SSMUX3_R = 0x00;            // Channel 0 (AIN0 = PE3)
-    ADC0_SSCTL3_R = 0x06;            // IE0 + END0 (one sample, interrupt flag)
-    ADC0_ACTSS_R |= 0x08;            // Enable SS3
-}
-
-/*=============================================
- * STEP 4b: UART Initialization
- *=============================================*/
-void UART0_Init(void) {
-    // Enable clocks
-    SYSCTL_RCGCUART_R |= 0x01;       // UART0 clock ON
-    SYSCTL_RCGCGPIO_R |= 0x01;       // Port A clock ON
-    while ((SYSCTL_PRUART_R & 0x01) == 0) {}  // Wait
-    
-    // Disable UART0
-    UART0_CTL_R &= ~0x01;
-    
-    // Baud rate: 16,000,000 / (16 × 9600) = 104.1667
-    UART0_IBRD_R = 104;              // Integer part
-    UART0_FBRD_R = 11;               // Fractional: int(0.1667 × 64 + 0.5) = 11
-    
-    // 8-bit, no parity, 1 stop bit, FIFO enabled
-    UART0_LCRH_R = 0x70;
-    
-    // Configure PA0 (RX) and PA1 (TX)
-    GPIO_PORTA_AFSEL_R |= 0x03;
-    GPIO_PORTA_PCTL_R   = (GPIO_PORTA_PCTL_R & ~0xFF) | 0x11;
-    GPIO_PORTA_DEN_R   |= 0x03;
-    
-    // Enable UART0 + TX + RX
-    UART0_CTL_R = 0x301;
-}
-
-/*=============================================
- * STEP 5a: ADC Read Operation
- *=============================================*/
-unsigned int ADC0_Read(void) {
-    ADC0_PSSI_R = 0x08;                          // Start conversion on SS3
-    while ((ADC0_RIS_R & 0x08) == 0) {}           // Wait for completion
-    unsigned int result = ADC0_SSFIFO3_R & 0xFFF; // Get 12-bit result
-    ADC0_ISC_R = 0x08;                            // Clear flag
-    return result;
-}
-
-/*=============================================
- * STEP 5b: UART Send Operations
- *=============================================*/
-void UART0_SendChar(char c) {
-    while (UART0_FR_R & 0x20) {}      // Wait if TX FIFO full
-    UART0_DR_R = c;
-}
-
-void UART0_SendString(char *str) {
-    while (*str) {
-        UART0_SendChar(*str);
-        str++;
-    }
-}
-
-/*=============================================
- * STEP 5c: Helper — Simple Delay
- *=============================================*/
-void delay_ms(unsigned int ms) {
-    unsigned int i, j;
-    for (i = 0; i < ms; i++)
-        for (j = 0; j < 3180; j++) {} // ~1ms at 16 MHz
-}
-
-/*=============================================
- * STEP 6: Main Program
- *=============================================*/
-int main(void) {
-    unsigned int adc_value;
-    unsigned int temperature;
-    
-    // Initialize peripherals
-    ADC0_Init();
-    UART0_Init();
-    
-    UART0_SendString("System Ready\r\n");
-    
-    while (1) {
-        // 1. Read ADC
-        adc_value = ADC0_Read();
-        
-        // 2. Convert to temperature
-        //    LM35: 10mV per °C
-        //    ADC: 0-4095 maps to 0-3.3V
-        //    Voltage = adc_value × 3.3 / 4096
-        //    Temp = Voltage / 0.01 = Voltage × 100
-        //    Temp = adc_value × 330 / 4096
-        temperature = (adc_value * 330) / 4096;
-        
-        // 3. Send via UART
-        //    Convert number to characters manually
-        //    (in case sprintf is not allowed in exam)
-        UART0_SendString("Temp: ");
-        UART0_SendChar((temperature / 10) + '0');   // Tens digit
-        UART0_SendChar((temperature % 10) + '0');   // Units digit
-        UART0_SendString(" C\r\n");
-        
-        // 4. Wait 1 second
-        delay_ms(1000);
-    }
-}
-```
+### 2.1. Thermal Noise Power (Johnson-Nyquist Noise)
+$$N = k T B$$
+*   **Parameters:**
+    *   $N$: Thermal noise power (Watts, $\text{W}$).
+    *   $k$: Boltzmann's constant ($1.38 \times 10^{-23}\text{ Joules/Kelvin, J/K}$).
+    *   $T$: Absolute temperature in Kelvin ($\text{K}$), where $T_{\text{Kelvin}} = T_{^{\circ}\text{C}} + 273$. (Standard room temperature $17^{\circ}\text{C} = 290\text{ K}$).
+    *   $B$: Bandwidth over which the noise is measured (Hertz, $\text{Hz}$).
+*   **When to Use:**
+    *   Use to find the absolute physical limit of noise in any receiver channel. It defines the minimum detectable signal power (receiver sensitivity limit).
+    *   To express in $\text{dBm}$:
+        $$N_{\text{dBm}} = 10 \log_{10}\left(\frac{k T B}{10^{-3}}\right) = -174\text{ dBm/Hz} + 10 \log_{10}(B)$$
 
 ---
 
-## ⏱️ SysTick Timer — The Built-in Countdown Timer
-
-> **What is SysTick?** It's a 24-bit countdown timer built into the ARM Cortex-M4 core. Every TM4C123 has it. It's the simplest timer — no modules to enable, no GPIO pins needed. Perfect for generating precise delays and periodic interrupts.
-
-### Step 3 (SysTick): LIST the Registers 📋
-
-```
-NVIC_ST_CTRL_R    → Control & status register (enable, interrupt, clock source)
-NVIC_ST_RELOAD_R  → The value to count DOWN from (reload value)
-NVIC_ST_CURRENT_R → Current count value (write anything to clear it)
-```
-
-> [!TIP]
-> **Memory trick:** Think of SysTick as an egg timer:
-> - `RELOAD` = how many seconds you set the timer for
-> - `CURRENT` = how many seconds are left on the display
-> - `CTRL` = the start/stop/alarm button
-
-### Step 4 (SysTick): INIT Code ⚙️
-
-**SysTick does NOT need a clock enable!** It's always powered. Just configure and go.
-
-```c
-void SysTick_Init(void) {
-    NVIC_ST_CTRL_R    = 0;           // Step 1: DISABLE SysTick before config
-    NVIC_ST_RELOAD_R  = 15999999;    // Step 2: Set reload value
-                                     //   For 1-second delay @ 16 MHz:
-                                     //   RELOAD = (16,000,000 / 1) - 1 = 15,999,999
-    NVIC_ST_CURRENT_R = 0;           // Step 3: Clear the current counter
-    NVIC_ST_CTRL_R    = 0x05;        // Step 4: Enable with system clock
-                                     //   Bit 2 = 1: use system clock
-                                     //   Bit 1 = 0: no interrupt (polling mode)
-                                     //   Bit 0 = 1: enable SysTick
-}
-```
-
-> [!IMPORTANT]
-> ### How to Calculate the RELOAD Value (They ALWAYS ask this!)
-> ```
-> RELOAD = (System_Clock / Desired_Frequency) - 1
->
-> For a 1-second period @ 16 MHz:
->   RELOAD = (16,000,000 / 1) - 1 = 15,999,999
->
-> For a 1 ms delay @ 16 MHz:
->   RELOAD = (16,000,000 / 1000) - 1 = 15,999
->
-> For a 500 µs delay @ 16 MHz:
->   RELOAD = (16,000,000 / 2000) - 1 = 7,999
-> ```
-> **Always show this formula in the exam — it's easy marks!**
-
-### CTRL Register Bit Values (Memorize These!)
-
-| CTRL Value | Meaning |
-|---|---|
-| `0x05` | Enable + System Clock (polling mode, NO interrupt) |
-| `0x07` | Enable + System Clock + **Interrupt enabled** |
-| `0x00` | Disabled |
-
-> **Bit layout of NVIC_ST_CTRL_R:**
-> - Bit 0 = ENABLE (1 = on)
-> - Bit 1 = INTEN (1 = trigger interrupt when reaches 0)
-> - Bit 2 = CLK_SRC (1 = system clock, 0 = external clock)
-> - Bit 16 = COUNT (read-only flag: 1 = timer has reached 0 since last read)
-
-### Step 5 (SysTick): OPERATION Functions 🔄
-
-#### Polling Mode — Wait for the count to reach zero:
-
-```c
-void SysTick_Wait(unsigned long delay) {
-    NVIC_ST_RELOAD_R  = delay - 1;  // Load the delay value
-    NVIC_ST_CURRENT_R = 0;          // Clear counter
-    NVIC_ST_CTRL_R    = 0x05;       // Enable with system clock, no interrupt
-    // Wait until COUNT flag (bit 16) is set — meaning timer hit 0
-    while ((NVIC_ST_CTRL_R & 0x00010000) == 0) {}
-}
-
-// Wrapper: delay in milliseconds (@ 16 MHz)
-void SysTick_Wait1ms(unsigned long delay_ms) {
-    unsigned long i;
-    for (i = 0; i < delay_ms; i++) {
-        SysTick_Wait(16000);         // 16,000 cycles = 1 ms @ 16 MHz
-    }
-}
-```
-
-#### Interrupt Mode — SysTick fires the ISR periodically:
-
-```c
-// In Init: use CTRL = 0x07 to enable interrupt
-void SysTick_Init_Interrupt(unsigned long period) {
-    NVIC_ST_CTRL_R    = 0;           // Disable first
-    NVIC_ST_RELOAD_R  = period - 1;  // Set period
-    NVIC_ST_CURRENT_R = 0;           // Clear counter
-    NVIC_ST_CTRL_R    = 0x07;        // Enable + system clock + INTERRUPT
-}
-
-// The ISR — this function is called automatically every period
-void SysTick_Handler(void) {
-    // Your periodic task goes here
-    // Example: toggle an LED every 1 second
-    GPIO_PORTF_DATA_R ^= 0x04;       // Toggle PF2 (blue LED)
-}
-```
-
-> [!NOTE]
-> The function **must** be named `SysTick_Handler` — this is the name the ARM Cortex-M4 startup file looks for in the vector table. Do NOT rename it.
+### 2.2. Wiener-Khinchine Theorem
+$$S_x(f) = \int_{-\infty}^{\infty} R_x(\tau) e^{-j 2 \pi f \tau} d\tau$$
+*   **Parameters:**
+    *   $S_x(f)$: Power Spectral Density (PSD) of the random signal $x(t)$ ($\text{Watts/Hz}$).
+    *   $R_x(\tau) = \mathbb{E}[x(t)x(t+\tau)]$: Autocorrelation function of the process at time lag $\tau$.
+    *   $f$: Frequency ($\text{Hz}$).
+*   **When to Use:**
+    *   Use to analyze the frequency distribution of a noise or signal process by computing the Fourier Transform of its time-domain autocorrelation function.
 
 ---
 
-## ⚡ Interrupts — Making the MCU React to Events
-
-> **What are Interrupts?** Instead of constantly checking (polling) if something happened, interrupts let the hardware *notify* the CPU automatically. The CPU stops what it's doing, runs the Interrupt Service Routine (ISR), then returns to where it left off.
-
-### The Key Concepts:
-
-| Concept | Plain English |
-|---|---|
-| **ISR (Interrupt Service Routine)** | The function that runs when the interrupt fires |
-| **NVIC (Nested Vector Interrupt Controller)** | The ARM hardware that manages which interrupts are enabled and their priority |
-| **Edge-triggered** | Fires when the signal CHANGES (rising or falling edge) |
-| **Level-triggered** | Fires as long as the signal IS at a certain level |
-| **Priority** | Which interrupt wins if two fire at the same time (0 = highest) |
-
-### Step 3 (Interrupts): LIST the Registers 📋
-
-#### For GPIO Interrupts (most common in exams):
-```
-GPIO_PORTx_IS_R     → Interrupt Sense (0=edge, 1=level)
-GPIO_PORTx_IBE_R    → Interrupt Both Edges (1=both edges trigger)
-GPIO_PORTx_IEV_R    → Interrupt Event (0=falling edge/low, 1=rising edge/high)
-GPIO_PORTx_ICR_R    → Interrupt Clear Register (write 1 to clear the flag)
-GPIO_PORTx_IM_R     → Interrupt Mask (1=unmask/enable the interrupt for that pin)
-
-NVIC_ENx_R          → NVIC Enable Register (enable interrupt in NVIC)
-NVIC_PRIx_R         → Priority Register (set priority 0-7)
-```
-
-#### For SysTick Interrupts:
-```
-NVIC_ST_CTRL_R      → Bit 1 = INTEN (enable SysTick interrupt)
-(Handled automatically by the ARM core — no NVIC_EN needed)
-```
-
-### Step 4 (Interrupts): INIT Code ⚙️
-
-#### GPIO Interrupt Example — PF4 (SW1 button on the LaunchPad):
-
-```c
-void GPIO_PORTF_Interrupt_Init(void) {
-    // 1. Enable clock and configure pin as input (standard GPIO init first)
-    SYSCTL_RCGCGPIO_R |= 0x20;              // Port F clock
-    while ((SYSCTL_PRGPIO_R & 0x20) == 0) {}
-    
-    GPIO_PORTF_LOCK_R   = 0x4C4F434B;       // Unlock Port F (PF0 is locked)
-    GPIO_PORTF_CR_R    |= 0x11;             // Allow changes to PF0 and PF4
-    GPIO_PORTF_DIR_R   &= ~0x11;            // PF0, PF4 = inputs (buttons)
-    GPIO_PORTF_PUR_R   |= 0x11;             // Pull-up resistors (buttons are active-low)
-    GPIO_PORTF_DEN_R   |= 0x11;             // Digital enable
-    
-    // 2. Configure interrupt behavior
-    GPIO_PORTF_IS_R    &= ~0x10;            // PF4: edge-triggered (not level)
-    GPIO_PORTF_IBE_R   &= ~0x10;            // PF4: NOT both edges
-    GPIO_PORTF_IEV_R   &= ~0x10;            // PF4: falling edge (button press = goes LOW)
-    GPIO_PORTF_ICR_R   |=  0x10;            // Clear any pending interrupt on PF4
-    GPIO_PORTF_IM_R    |=  0x10;            // Unmask PF4 interrupt (ENABLE it)
-    
-    // 3. Enable in NVIC (Port F = IRQ 30)
-    NVIC_EN0_R |= (1 << 30);               // Enable IRQ 30 (GPIO Port F)
-    
-    // 4. Set priority (optional, 0 = highest, 7 = lowest)
-    // IRQ 30 is in NVIC_PRI7_R, bits [31:29]
-    NVIC_PRI7_R = (NVIC_PRI7_R & ~0xE0000000) | (0x02 << 29); // Priority 2
-    
-    // 5. Enable global interrupts
-    __enable_irq();   // Or: EnableInterrupts(); in TivaWare
-}
-```
-
-### Step 5 (Interrupts): The ISR Function 🔄
-
-```c
-// The ISR for GPIO Port F
-// MUST be named exactly "GPIOF_Handler" — defined in the startup file
-void GPIOF_Handler(void) {
-    // 1. ALWAYS clear the interrupt flag FIRST (prevents re-triggering)
-    GPIO_PORTF_ICR_R |= 0x10;              // Clear PF4 interrupt flag
-    
-    // 2. Do your task
-    GPIO_PORTF_DATA_R ^= 0x02;             // Toggle PF1 (Red LED)
-}
-```
-
-> [!CAUTION]
-> **The #1 Interrupt Mistake:** Forgetting to **clear the interrupt flag** inside the ISR!
-> If you don't clear it, the ISR will fire again immediately after returning — creating an infinite loop.
-> **Always start your ISR by clearing the flag with `ICR_R`.**
-
-### IRQ Numbers for TM4C123 (Common in Exams):
-
-| Peripheral | IRQ Number | NVIC_EN Register | Bit |
-|---|---|---|---|
-| GPIO Port A | 0 | NVIC_EN0_R | bit 0 |
-| GPIO Port B | 1 | NVIC_EN0_R | bit 1 |
-| GPIO Port C | 2 | NVIC_EN0_R | bit 2 |
-| GPIO Port D | 3 | NVIC_EN0_R | bit 3 |
-| GPIO Port E | 4 | NVIC_EN0_R | bit 4 |
-| UART0 | 5 | NVIC_EN0_R | bit 5 |
-| UART1 | 6 | NVIC_EN0_R | bit 6 |
-| SysTick | — | Built into core | — |
-| GPIO Port F | 30 | NVIC_EN0_R | bit 30 |
-
-### ISR Naming Convention (ARM Vector Table):
-
-| Peripheral | ISR Function Name |
-|---|---|
-| GPIO Port A | `GPIOA_Handler` |
-| GPIO Port B | `GPIOB_Handler` |
-| GPIO Port C | `GPIOC_Handler` |
-| GPIO Port D | `GPIOD_Handler` |
-| GPIO Port E | `GPIOE_Handler` |
-| GPIO Port F | `GPIOF_Handler` |
-| UART0 | `UART0_Handler` |
-| SysTick | `SysTick_Handler` |
-
-> [!IMPORTANT]
-> These names are **fixed** by the startup file (`startup_TM4C123.s`). If you name your ISR anything different, it will NEVER be called. No error, no warning — just silent failure.
-
-### Step 6 (Interrupts): MAIN Function 🏁
-
-```c
-#include "tm4c123gh6pm.h"
-
-void GPIO_PORTF_Interrupt_Init(void);  // Forward declarations
-void GPIOF_Handler(void);
-
-int main(void) {
-    GPIO_PORTF_Interrupt_Init();       // Set up interrupt
-    
-    // The LED init (PF1 = Red LED output)
-    GPIO_PORTF_DIR_R  |= 0x02;        // PF1 output
-    GPIO_PORTF_DEN_R  |= 0x02;        // PF1 digital enable
-    
-    while (1) {
-        // Main loop does its own work
-        // The GPIOF_Handler runs automatically when SW1 is pressed
-        // No need to check the button manually!
-    }
-}
-```
-
-### The Interrupt Flow — What Happens in Hardware:
-
-```mermaid
-sequenceDiagram
-    participant CPU as CPU (main loop)
-    participant HW as Hardware (GPIO)
-    participant NVIC as NVIC
-    participant ISR as ISR (Handler)
-
-    CPU->>CPU: Running main loop normally
-    HW->>NVIC: Interrupt signal (button pressed!)
-    NVIC->>CPU: Pause! Higher priority task!
-    CPU->>CPU: Save registers (automatic)
-    CPU->>ISR: Jump to GPIOF_Handler()
-    ISR->>HW: Clear interrupt flag (ICR_R)
-    ISR->>ISR: Do the task (toggle LED)
-    ISR->>CPU: Return from interrupt
-    CPU->>CPU: Restore registers (automatic)
-    CPU->>CPU: Continue main loop from where it paused
-```
-
-### SysTick + Interrupt — Complete Example:
-
-```c
-#include "tm4c123gh6pm.h"
-
-/*--- SysTick Init with Interrupt ---*/
-void SysTick_Init(void) {
-    NVIC_ST_CTRL_R    = 0;           // Disable
-    NVIC_ST_RELOAD_R  = 15999999;    // 1 second @ 16 MHz: (16,000,000 / 1) - 1
-    NVIC_ST_CURRENT_R = 0;           // Clear counter
-    NVIC_ST_CTRL_R    = 0x07;        // Enable + System Clock + Interrupt
-}
-
-/*--- SysTick ISR ---*/
-void SysTick_Handler(void) {
-    GPIO_PORTF_DATA_R ^= 0x04;       // Toggle PF2 (Blue LED) every 1 second
-}
-
-/*--- Main ---*/
-int main(void) {
-    // Enable Port F clock
-    SYSCTL_RCGCGPIO_R |= 0x20;
-    while ((SYSCTL_PRGPIO_R & 0x20) == 0) {}
-    
-    // PF2 (Blue LED) = output
-    GPIO_PORTF_DIR_R |= 0x04;
-    GPIO_PORTF_DEN_R |= 0x04;
-    
-    SysTick_Init();                  // Start SysTick with interrupt
-    __enable_irq();                  // Enable global interrupts
-    
-    while (1) {
-        // CPU is free to do other things
-        // LED toggles automatically every 1 second via SysTick ISR
-    }
-}
-```
-
-### ✅ Interrupt Exam Checklist:
-
-- [ ] Did I configure the pin as **input** before setting up the GPIO interrupt?
-- [ ] Did I set **IS_R** (edge vs level)?
-- [ ] Did I set **IEV_R** (rising vs falling edge)?
-- [ ] Did I **clear** any pending flag with **ICR_R** before enabling?
-- [ ] Did I **unmask** the pin with **IM_R**?
-- [ ] Did I enable the IRQ in **NVIC_EN0_R** (or EN1/EN2 for higher IRQ numbers)?
-- [ ] Is my ISR named **exactly** as the vector table expects?
-- [ ] Did I **clear the flag** as the **FIRST line** of my ISR?
-- [ ] Did I call `__enable_irq()` to enable global interrupts?
+### 2.3. White Noise Power Spectral Density
+$$S_w(f) = \frac{N_0}{2}$$
+*   **Parameters:**
+    *   $S_w(f)$: Two-sided Power Spectral Density ($\text{Watts/Hz}$).
+    *   $N_0$: One-sided noise power spectral density, equivalent to $kT$ for thermal noise.
+*   **When to Use:**
+    *   Use as an idealized model for wideband thermal noise where power is distributed uniformly across all frequencies from $-\infty$ to $+\infty$.
 
 ---
 
-## 🔑 Key Tricks to Remember
-
-### 1. Number-to-Character Conversion (No sprintf needed)
-```c
-// To convert a digit (0-9) to its ASCII character:
-char c = digit + '0';
-
-// Example: digit = 5 → c = '5' (ASCII 53)
-```
-
-### 2. Setting a Single Bit (Without Affecting Others)
-```c
-REG |= (1 << bit_number);    // Set bit
-REG &= ~(1 << bit_number);   // Clear bit
-```
-
-### 3. Hex to Binary Quick Reference
-```
-0x01 = 0000 0001    (bit 0)
-0x02 = 0000 0010    (bit 1)
-0x04 = 0000 0100    (bit 2)
-0x08 = 0000 1000    (bit 3)
-0x10 = 0001 0000    (bit 4)
-0x20 = 0010 0000    (bit 5)
-0x40 = 0100 0000    (bit 6)
-0x80 = 1000 0000    (bit 7)
-0xFF = 1111 1111    (all bits)
-```
-
-### 4. Common PCTL Values for Tiva C
-```
-UART = 1
-SSI  = 2
-I2C  = 3
-Timer = 7
-```
-
-### 5. The "Sandwich" Pattern (Disable → Configure → Enable)
-```c
-PERIPHERAL_CTL &= ~ENABLE_BIT;   // 🍞 Top bread — disable
-// ... all configuration here ...  // 🥩 Filling — settings
-PERIPHERAL_CTL |= ENABLE_BIT;    // 🍞 Bottom bread — enable
-```
+### 2.4. Signal-to-Noise Ratio (SNR)
+$$\text{SNR} = \frac{P_{\text{signal}}}{P_{\text{noise}}} \quad\implies\quad \text{SNR}_{\text{dB}} = 10 \log_{10}\left(\frac{P_{\text{signal}}}{P_{\text{noise}}}\right)$$
+*   **Parameters:**
+    *   $P_{\text{signal}}$: Desired signal power ($\text{Watts}$ or $\text{dBm}$).
+    *   $P_{\text{noise}}$: Noise power ($\text{Watts}$ or $\text{dBm}$).
+*   **When to Use:**
+    *   Use at the receiver input (before detection/demodulation) to quantify signal quality. It determines the ultimate capacity and bit error rate of the channel.
 
 ---
 
-## 🎯 Practice Strategy
+## 3. Large-Scale Path Loss & Propagation Models (Slides 3 & 4)
 
-1. **Start with UART** — it's the most commonly asked protocol
-2. **Then learn GPIO** — simplest to understand
-3. **Then ADC** — very commonly combined with UART
-4. **Then SPI/I2C** — less common but important
+### 3.1. Friis Free Space Propagation Model
+$$P_r(d) = P_t G_t G_r \left(\frac{\lambda}{4 \pi d}\right)^2 = P_t G_t G_r \left(\frac{c}{4 \pi d f}\right)^2$$
+*   **Parameters:**
+    *   $P_r(d)$: Received power at distance $d$ (Watts, $\text{W}$).
+    *   $P_t$: Transmit power (Watts, $\text{W}$).
+    *   $G_t, G_r$: Transmit and receive antenna power gains (dimensionless ratios).
+    *   $\lambda = c/f$: Wavelength of the carrier frequency (meters, $\text{m}$).
+    *   $c$: Speed of light ($3 \times 10^8\text{ m/s}$).
+    *   $f$: Carrier frequency (Hertz, $\text{Hz}$).
+    *   $d$: Separation distance between antennas (meters, $\text{m}$).
+*   **When to Use:**
+    *   Use to predict received power when there is a clear, unobstructed Line-of-Sight (LOS) path between transmitter and receiver (e.g., satellite links, terrestrial microwave towers).
+    *   **Constraint:** Only valid in the far-field region of the antennas: $d \gg d_f = 2D^2/\lambda$ (where $D$ is the largest antenna dimension).
 
-For each protocol, practice writing the **Init** and **Send/Receive** functions from memory at least 3 times until you can do it without looking at notes.
+---
 
-> [!CAUTION]
-> **The #1 exam mistake:** Forgetting to enable the clock for a port. ALWAYS start with `SYSCTL_RCGC...` for every module and port you use.
+### 3.2. Free Space Path Loss (FSPL) in Decibels
+$$\text{FSPL(dB)} = 32.4 + 20 \log_{10}(f_{\text{ MHz}}) + 20 \log_{10}(d_{\text{ km}})$$
+*   **Parameters:**
+    *   $f_{\text{ MHz}}$: Carrier frequency in Megahertz ($\text{MHz}$).
+    *   $d_{\text{ km}}$: Link distance in kilometers ($\text{km}$).
+*   **When to Use:**
+    *   Standard formula for calculating line-of-sight signal loss in decibels.
+    *   To get received power:
+        $$P_{r,\text{ dBm}} = P_{t,\text{ dBm}} + G_{t,\text{ dBi}} + G_{r,\text{ dBi}} - \text{FSPL}_{\text{dB}}$$
+
+---
+
+### 3.3. Two-Ray Ground Reflection Model (Flat Earth Model)
+$$P_r(d) = P_t G_t G_r \frac{h_t^2 h_r^2}{d^4}$$
+$$\text{Path Loss (dB)} = 40 \log_{10}(d) - 20 \log_{10}(h_t) - 20 \log_{10}(h_r)$$
+*   **Parameters:**
+    *   $h_t$: Height of the transmit antenna above the ground (meters, $\text{m}$).
+    *   $h_r$: Height of the receive antenna above the ground (meters, $\text{m}$).
+    *   $d$: T-R separation distance (meters, $\text{m}$).
+*   **When to Use:**
+    *   Use for mobile communication links over several kilometers where antennas are on tall towers and a ground-reflected path interferes with the direct path.
+    *   > [!TIP]
+      > Note that the received power drops off as $d^{-4}$ (40 dB/decade) rather than $d^{-2}$ (20 dB/decade), and is independent of wavelength (frequency) at long distances.
+
+---
+
+### 3.4. Log-Distance Path Loss Model (Non-Line-of-Sight)
+$$P_r(d) = P_r(d_0) \left(\frac{d_0}{d}\right)^n \quad\implies\quad \text{PL}(d)\text{ (dB)} = \text{PL}(d_0)\text{ (dB)} + 10 n \log_{10}\left(\frac{d}{d_0}\right)$$
+*   **Parameters:**
+    *   $d_0$: Close-in reference distance in the far-field (typically $1\text{ km}$ or $100\text{ m}$ for outdoor, $1\text{ m}$ for indoor).
+    *   $d$: Actual transmitter-receiver distance ($d \ge d_0$).
+    *   $n$: Path loss exponent indicating the rate at which path loss increases with distance.
+*   **When to Use:**
+    *   Use to estimate average path loss in shadowed/obstructed environments (e.g., indoor walls, urban streets) where Friis' model does not apply.
+    *   **Common values of $n$:**
+        *   Free space: $n = 2$
+        *   Urban cellular: $n = 2.7\text{ to }3.5$
+        *   Shadowed urban cellular: $n = 3.0\text{ to }5.0$
+        *   In-building (obstructed): $n = 4.0\text{ to }6.0$
+
+---
+
+### 3.5. Okumura Model
+$$L_{50}\text{ (dB)} = \text{FSPL} + A_{mu}(f, d) - G(h_t) - G(h_r) - G_{\text{AREA}}$$
+*   **Parameters:**
+    *   $L_{50}$: Median propagation path loss ($\text{dB}$).
+    *   $A_{mu}(f, d)$: Median attenuation relative to free space (read from curves).
+    *   $G(h_t) = 20 \log_{10}\left(\frac{h_t}{200}\right)$ for $30\text{ m} < h_t < 1000\text{ m}$ (BS antenna height gain).
+    *   $G(h_r) = 20 \log_{10}\left(\frac{h_r}{3}\right)$ for $h_r \le 3\text{ m}$ (MS antenna height gain).
+    *   $G(h_r) = 10 \log_{10}\left(\frac{h_r}{3}\right)$ for $3\text{ m} < h_r < 10\text{ m}$ (MS antenna height gain).
+    *   $G_{\text{AREA}}$: Environment gain correction (read from curves).
+*   **When to Use:**
+    *   Empirical path loss model valid for $f_c = 150-1920\text{ MHz}$, $h_t = 30-1000\text{ m}$, $h_r = 1-10\text{ m}$, and $d = 1-100\text{ km}$. Use to predict average signal levels in urban/suburban environments using measurement charts.
+
+---
+
+### 3.6. Okumura-Hata Model (Standard Hata Model)
+$$L_{50,\text{ urban}}\text{ (dB)} = 69.55 + 26.16 \log_{10}(f_c) - 13.82 \log_{10}(h_t) - a(h_r) + [44.9 - 6.55 \log_{10}(h_t)] \log_{10}(d)$$
+*   **Parameters:**
+    *   $f_c$: Carrier frequency in $\text{MHz}$ ($150 - 1500\text{ MHz}$).
+    *   $h_t$: Base station antenna height in meters ($30 - 200\text{ m}$).
+    *   $h_r$: Mobile antenna height in meters ($1 - 10\text{ m}$).
+    *   $d$: Separation distance in kilometers ($1 - 20\text{ km}$).
+    *   $a(h_r)$: Mobile antenna height correction factor:
+        *   **Medium-to-Small Cities:**
+            $$a(h_r) = (1.1 \log_{10}(f_c) - 0.7)h_r - (1.56 \log_{10}(f_c) - 0.8)\text{ dB}$$
+        *   **Large Cities ($f_c < 1500\text{ MHz}$):**
+            $$a(h_r) = 8.29 (\log_{10}(1.54 h_r))^2 - 1.1\text{ dB}$$
+        *   **Large Cities ($f_c \ge 1500\text{ MHz}$):**
+            $$a(h_r) = 3.2 (\log_{10}(11.75 h_r))^2 - 4.97\text{ dB}$$
+*   **When to Use:**
+    *   Use to programmatically calculate path loss in regular macro-cellular systems without reading graphical curves.
+    *   **Suburban and Open Area Corrections:**
+        $$L_{\text{suburban}}\text{ (dB)} = L_{\text{urban}} - 2 \left[\log_{10}\left(\frac{f_c}{28}\right)\right]^2 - 5.4$$
+        $$L_{\text{open}}\text{ (dB)} = L_{\text{urban}} - 4.78 [\log_{10}(f_c)]^2 + 18.33 \log_{10}(f_c) - 40.94$$
+
+---
+
+### 3.7. COST 231 Hata Model (Higher Frequencies Extension)
+$$L_{\text{COST}}(dB) = 46.3 + 33.9 \log_{10}(f_c) - 13.82 \log_{10}(h_t) - a(h_r) + [44.9 - 6.55 \log_{10}(h_t)] \log_{10}(d) + C$$
+*   **Parameters:**
+    *   $f_c$: Carrier frequency in $\text{MHz}$ ($1500 - 2000\text{ MHz}$).
+    *   $C$: Environment factor:
+        *   $C = 0\text{ dB}$ for medium cities and suburban areas.
+        *   $C = 3\text{ dB}$ for metropolitan centers/large cities.
+    *   $a(h_r)$: Mobile antenna height correction (same as standard Hata).
+*   **When to Use:**
+    *   Use to estimate path loss for cellular systems operating in the $1.8\text{ GHz}$ or $1.9\text{ GHz}$ bands (like GSM1800, PCS, early 3G).
+
+---
+
+### 3.8. Doppler Shift ($f_d$)
+$$f_d = \frac{v}{\lambda} \cos(\theta) = \frac{v f_c}{c} \cos(\theta)$$
+*   **Parameters:**
+    *   $f_d$: Frequency shift (Hertz, $\text{Hz}$).
+    *   $v$: Mobile speed (meters/second, $\text{m/s}$). To convert from $\text{km/h}$ to $\text{m/s}$, divide by $3.6$.
+    *   $\lambda = c/f_c$: Carrier wavelength (meters, $\text{m}$).
+    *   $f_c$: Carrier frequency ($\text{Hz}$).
+    *   $\theta$: Angle of arrival of the incoming wave relative to the direction of vehicle motion.
+*   **When to Use:**
+    *   Use to find the frequency change of received signals due to receiver mobility.
+    *   If the mobile moves **towards** the wave source ($\theta = 0^{\circ}$), $f_d$ is positive ($f_{\text{received}} = f_c + f_{d,\text{max}}$).
+    *   If the mobile moves **away** from the wave source ($\theta = 180^{\circ}$), $f_d$ is negative ($f_{\text{received}} = f_c - f_{d,\text{max}}$).
+    *   If the mobile moves **perpendicular** ($\theta = 90^{\circ}$), $f_d = 0$.
+
+---
+
+## 4. Multipath Channels & Delay Spread Parameters (Slides 5 & 6)
+
+### 4.1. Baseband Channel Impulse Response (Time-Varying)
+$$h(t, \tau) = \sum_{i=0}^{N-1} a_i(t) e^{-j \phi_i(t)} \delta(\tau - \tau_i(t))$$
+*   **Parameters:**
+    *   $t$: Time when the channel is probed (represents time variation due to motion).
+    *   $\tau$: Excess delay parameter.
+    *   $a_i(t)$: Real amplitude (attenuation) of the $i$-th path.
+    *   $\tau_i(t)$: Propagation delay of the $i$-th path.
+    *   $\phi_i(t) = 2 \pi f_c \tau_i(t) + \phi_{i0}$: Phase shift of the $i$-th path.
+*   **When to Use:**
+    *   Use as the mathematical baseline for simulating multipath channels. The received signal is computed as:
+        $$y(t) = x(t) * h(t,\tau) + n(t)$$
+
+---
+
+### 4.2. Received Power of Wideband vs. Narrowband Signals
+*   **Wideband Signal ($T_b < \text{max delay spread}$ or $B_{\text{signal}} > B_c$):**
+    $$P_{\text{wideband}} \approx \sum_{i=0}^{N-1} |a_i|^2$$
+    *   *Usage:* Individual multipath components are resolvable. Since their powers sum up directly, received power fluctuates very little over small areas.
+*   **Narrowband Signal ($T_b > \text{max delay spread}$ or $B_{\text{signal}} < B_c$):**
+    $$P_{\text{narrowband}} = \left| \sum_{i=0}^{N-1} a_i e^{-j \phi_i} \right|^2$$
+    *   *Usage:* Multipath components cannot be resolved and add vectorially. Small changes in position (fractions of a wavelength) cause large variations in phase, leading to deep destructive fading (up to $30-40\text{ dB}$).
+
+---
+
+### 4.3. Mean Excess Delay ($\bar{\tau}$)
+$$\bar{\tau} = \frac{\sum_k P(\tau_k) \tau_k}{\sum_k P(\tau_k)}$$
+*   **Parameters:**
+    *   $\tau_k$: Excess delay of the $k$-th bin relative to the first arriving signal ($\tau_0 = 0$).
+    *   $P(\tau_k)$: Power of the signal component at delay $\tau_k$.
+*   **When to Use:**
+    *   Characterizes the average arrival time of multipath components, weighted by their received power.
+
+---
+
+### 4.4. RMS Delay Spread ($\sigma_{\tau}$)
+$$\sigma_{\tau} = \sqrt{\overline{\tau^2} - (\overline{\tau})^2} \quad\text{where}\quad \overline{\tau^2} = \frac{\sum_k P(\tau_k) \tau_k^2}{\sum_k P(\tau_k)}$$
+*   **Parameters:**
+    *   $\overline{\tau^2}$: Second moment of the power delay profile.
+    *   $\overline{\tau}$: Mean excess delay.
+*   **When to Use:**
+    *   Measures the temporal dispersion of the channel. It is the primary parameter used to determine if a channel causes ISI.
+    *   Typical values: Microseconds ($\mu\text{s}$) for outdoors, nanoseconds ($\text{ns}$) for indoors.
+
+---
+
+### 4.5. Coherence Bandwidth ($B_c$)
+*   **Strict Definition (correlation $> 0.9$):**
+    $$B_c \approx \frac{1}{50 \sigma_{\tau}}$$
+*   **Relaxed Definition (correlation $> 0.5$):**
+    $$B_c \approx \frac{1}{5 \sigma_{\tau}}$$
+*   **When to Use:**
+    *   Defines the frequency range where the channel gain is relatively constant.
+    *   If signal bandwidth $B_s < B_c$, the channel is **Flat Fading** (no ISI, simple receiver).
+    *   If signal bandwidth $B_s > B_c$, the channel is **Frequency-Selective Fading** (causes ISI, requires equalization or OFDM).
+
+---
+
+### 4.6. Doppler Spread ($B_D$)
+$$B_D = f_m = \frac{v}{\lambda}$$
+*   **When to Use:**
+    *   Measures the range of spectral broadening of a single-tone carrier due to mobility.
+
+---
+
+### 4.7. Coherence Time ($T_c$)
+*   **Strict Definition (correlation $> 0.5$):**
+    $$T_c \approx \frac{9}{16 \pi f_m} = \frac{0.179}{f_m}$$
+*   **Digital Communication Rule of Thumb:**
+    $$T_c \approx \frac{3}{4 \pi f_m} = \frac{0.239}{f_m} \quad\text{or}\quad T_c \approx \frac{0.423}{f_m}$$
+*   **When to Use:**
+    *   Defines the time interval over which channel coefficients remain highly correlated.
+    *   If symbol duration $T_s < T_c$, the channel is **Slow Fading** (channel is constant over a symbol).
+    *   If symbol duration $T_s > T_c$, the channel is **Fast Fading** (channel changes during a symbol, causing distortion).
+
+---
+
+## 5. Wireless Link Performance & Deep Fade Analysis (Slide 7)
+
+### 5.1. AWGN (Wireline) Bit Error Rate (BPSK/QPSK)
+$$\text{BER}_{\text{AWGN}} = Q\left(\sqrt{2 \text{ SNR}}\right)$$
+*   **Parameters:**
+    *   $\text{SNR} = \frac{P}{\sigma_n^2}$: Power ratio of signal to noise.
+    *   $Q(x) = \frac{1}{\sqrt{2\pi}} \int_x^{\infty} e^{-u^2/2} du$: Gaussian tail probability.
+*   **When to Use:**
+    *   Gives the theoretical baseline performance of BPSK in a stable channel (like fiber or coax) without fading. BER decreases exponentially as SNR increases.
+
+---
+
+### 5.2. Average BER in Rayleigh Fading (BPSK)
+$$\text{BER}_{\text{Rayleigh}} = \frac{1}{2} \left(1 - \sqrt{\frac{\text{SNR}_0}{2 + \text{SNR}_0}}\right) \approx \frac{1}{4 \text{SNR}_0} \quad (\text{for high SNR})$$
+*   **Parameters:**
+    *   $\text{SNR}_0$: Average received SNR ($\mathbb{E}[a^2] \cdot P / \sigma_n^2$).
+*   **When to Use:**
+    *   Predicts performance of a single-antenna BPSK system in flat Rayleigh fading.
+    *   > [!WARNING]
+      > Fading changes the BER behavior from exponential to linear ($1/\text{SNR}$), meaning that to achieve low BER (e.g. $10^{-5}$), a massive "fade margin" of $30-40\text{ dB}$ is required.
+
+---
+
+### 5.3. Deep Fade Condition & Probability
+*   **Deep Fade Condition:**
+    $$P_{\text{Rx}} < \sigma_n^2 \quad\implies\quad a^2 P < \sigma_n^2 \quad\implies\quad a < \frac{1}{\sqrt{\text{SNR}}}$$
+*   **Probability of Deep Fade (at High SNR):**
+    $$P_{\text{fade}} = \text{Pr}\left(a^2 < \frac{1}{\text{SNR}}\right) = 1 - e^{-1/\text{SNR}} \approx \frac{1}{\text{SNR}}$$
+*   **When to Use:**
+    *   Explains why flat fading has such bad BER performance: at high SNR, the average BER is dominated by the probability of the channel falling into a deep fade.
+    *   To improve link quality, we must use diversity to reduce the probability of deep fades.
+
+---
+
+## 6. Space Diversity & Maximal Ratio Combining (Slide 8)
+
+### 6.1. Linear Combined Vector (Beamforming)
+$$y_{\text{comb}} = \mathbf{w}^H \mathbf{y} = \sum_{i=1}^L w_i^* y_i$$
+*   **Parameters:**
+    *   $\mathbf{y} = [y_1, y_2, \dots, y_L]^T$: Received signals at the $L$ antennas.
+    *   $\mathbf{w} = [w_1, w_2, \dots, w_L]^T$: Combining weight vector.
+    *   $w_i^*$: Complex conjugate of $w_i$.
+*   **When to Use:**
+    *   Use when analyzing linear combining receivers in Single-Input Multiple-Output (SIMO) systems.
+
+---
+
+### 6.2. Maximal Ratio Combining (MRC) Optimum SNR
+$$\mathbf{w}_{\text{opt}} = \mathbf{h} \quad\implies\quad \text{SNR}_{\text{MRC}} = \frac{P}{\sigma_n^2} \sum_{i=1}^L |h_i|^2 = \text{SNR}_0 \sum_{i=1}^L |h_i|^2$$
+*   **Parameters:**
+    *   $h_i$: Complex fading coefficient of the $i$-th receive antenna.
+    *   $\text{SNR}_0$: Average branch SNR without fading.
+    *   $L$: Number of receive antennas.
+*   **When to Use:**
+    *   MRC is the optimal linear combining technique that maximizes the output SNR by rotating the phases and scaling the amplitudes of each branch proportionally to its signal strength.
+
+---
+
+### 6.3. Probability Density Function of MRC Channel Gain ($g$)
+$$f_G(g) = \frac{g^{L-1} e^{-g}}{(L-1)!} \quad (\text{for } g = \sum_{i=1}^L |h_i|^2)$$
+*   **When to Use:**
+    *   Use when performing analytical integration to find average capacity or average BER of an $L$-branch MRC system. It is a Chi-square distribution with $2L$ degrees of freedom.
+
+---
+
+### 6.4. Average BER with L-Branch MRC (Rayleigh Fading)
+$$\text{BER}_L = \left(\frac{1-\mu}{2}\right)^L \sum_{k=0}^{L-1} \binom{L-1+k}{k} \left(\frac{1+\mu}{2}\right)^k \quad\text{where}\quad \mu = \sqrt{\frac{\text{SNR}_0}{2 + \text{SNR}_0}}$$
+$$\text{BER}_L \approx \binom{2L-1}{L} \left(\frac{1}{4 \text{SNR}_0}\right)^L \quad (\text{at high SNR})$$
+*   **When to Use:**
+    *   Predicts BPSK performance when using $L$ receive antennas with MRC combining.
+    *   > [!TIP]
+      > The BER decreases as $1/\text{SNR}_0^L$. This dramatically increases the slope of the BER-vs-SNR curve, meaning diversity effectively eliminates deep fade events. The diversity order is $L$.
+
+---
+
+### 6.5. Minimum Antenna Spacing for Space Diversity
+$$d_{\text{min}} \ge 0.5 \lambda = \frac{0.5 c}{f_c}$$
+*   **Parameters:**
+    *   $\lambda$: Carrier wavelength.
+    *   $f_c$: Carrier frequency.
+*   **When to Use:**
+    *   Design rule to ensure that fading across different antenna elements is statistically independent (uncorrelated).
+    *   **Rule of Thumb:**
+        *   *Mobile Station (MS):* Spacing must be $\ge 0.5 \lambda$ (easy to fit at high frequencies like $2.3\text{ GHz} \to 6.5\text{ cm}$).
+        *   *Base Station (BS):* Spacing must be several tens of wavelengths (e.g. $10\lambda$ to $30\lambda$) due to narrow angular spread at elevated heights.
+
+---
+
+## 7. Multiple Access & Multi-Carrier Systems (Slide 9)
+
+### 7.1. OFDM Subcarrier Orthogonality Spacing
+$$\Delta f = \frac{1}{T}$$
+*   **Parameters:**
+    *   $\Delta f$: Subcarrier spacing ($\text{Hz}$).
+    *   $T$: Useful symbol duration ($\text{seconds}$).
+*   **When to Use:**
+    *   Calculates the minimum frequency-domain subcarrier spacing to prevent Inter-Carrier Interference (ICI) in OFDM. For example, in LTE, $T = 66.7\ \mu\text{s} \implies \Delta f = 15\text{ kHz}$.
+
+---
+
+### 7.2. OFDM Modulation and Demodulation (IFFT/FFT)
+*   **IFFT (Modulation):**
+    $$x[n] = \sum_{k=0}^{N-1} X_k e^{j \frac{2 \pi k n}{N}}$$
+*   **FFT (Demodulation):**
+    $$X_k = \frac{1}{N} \sum_{n=0}^{N-1} x[n] e^{-j \frac{2 \pi k n}{N}}$$
+*   **Parameters:**
+    *   $X_k$: Data symbol (e.g. QPSK, QAM) on the $k$-th subcarrier.
+    *   $x[n]$: Time-domain samples of the composite signal.
+    *   $N$: Number of subcarriers (FFT size).
+*   **When to Use:**
+    *   Practical implementation of OFDM. IFFT generates the orthogonal subcarriers at the transmitter, and FFT separates them at the receiver, replacing banks of analog oscillators.
+
+---
+
+### 7.3. NOMA Downlink Superimposed Transmitted Signal
+$$x = \sum_{i=1}^K \sqrt{P_i} x_i$$
+*   **Parameters:**
+    *   $x_i$: Normalized message signal of user $i$ ($\mathbb{E}[|x_i|^2] = 1$).
+    *   $P_i$: Power allocated to user $i$.
+    *   $K$: Total number of users sharing the same time-frequency resource.
+*   **When to Use:**
+    *   Use in power-domain Non-Orthogonal Multiple Access (NOMA) downlink to construct the combined signal transmitted by the base station.
+
+---
+
+### 7.4. NOMA Successive Interference Cancellation (SIC) Rule
+*   **Downlink Power Allocation Rule:**
+    *   Allocate **more power** to weak users (poor channel) and **less power** to strong users (good channel):
+        $$|h_{\text{weak}}|^2 < |h_{\text{strong}}|^2 \implies P_{\text{weak}} > P_{\text{strong}}$$
+*   **SIC Detection Order Rule:**
+    *   The receiver decodes signals in descending order of signal strength (strongest user first).
+    *   A strong user decodes the weak user's signal first (treating its own signal as noise, which is small due to lower power allocation), subtracts it from the received signal, and then decodes its own signal interference-free.
+    *   A weak user decodes its own signal directly, treating the strong user's signal as noise (which is small compared to its own large allocated power).
+
+---
+
+### 7.5. NOMA Achievable Downlink Rates
+$$R_i = \log_2\left(1 + \frac{P_i |h_i|^2}{\sum_{j > i} P_j |h_i|^2 + \sigma_i^2}\right)$$
+*   **Parameters:**
+    *   Users are sorted in ascending order of channel quality:
+        $$\frac{|h_1|^2}{\sigma_1^2} \le \frac{|h_2|^2}{\sigma_2^2} \le \dots \le \frac{|h_K|^2}{\sigma_K^2}$$
+    *   Power is allocated as: $P_1 > P_2 > \dots > P_K$.
+    *   User $i$ can cancel all users $j < i$ (weaker users with higher power) using SIC.
+    *   Signals of users $j > i$ (stronger users with lower power) remain as interference.
+    *   $\sigma_i^2$: Noise variance at receiver $i$.
+*   **When to Use:**
+    *   Calculates the theoretical downlink throughput of user $i$ in a power-domain NOMA system, showing the spectral efficiency gain over orthogonal allocation (OFDMA).
